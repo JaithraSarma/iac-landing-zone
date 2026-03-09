@@ -1,0 +1,14 @@
+###############################################################################
+# Template: Install Terraform
+###############################################################################
+
+parameters:
+  - name: version
+    type: string
+    default: "1.5.7"
+
+steps:
+  - task: TerraformInstaller@1
+    displayName: "Install Terraform ${{ parameters.version }}"
+    inputs:
+      terraformVersion: "${{ parameters.version }}"

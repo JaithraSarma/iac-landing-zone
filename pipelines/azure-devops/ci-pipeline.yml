@@ -1,0 +1,74 @@
+###############################################################################
+# Azure DevOps - CI Pipeline (Terraform Plan)
+# Triggered on Pull Requests to main branch.
+# Runs terraform init + validate + plan for each environment.
+###############################################################################
+
+trigger: none
+
+pr:
+  branches:
+    include:
+      - main
+  paths:
+    include:
+      - environments/**
+      - modules/**
+
+pool:
+  vmImage: "ubuntu-latest"
+
+variables:
+  - group: terraform-credentials
+  - name: TF_VERSION
+    value: "1.5.7"
+
+stages:
+  - stage: Validate
+    displayName: "Terraform Validate"
+    jobs:
+      - job: ValidateModules
+        displayName: "Validate All Modules"
+        steps:
+          - template: templates/install-terraform.yml
+            parameters:
+              version: $(TF_VERSION)
+
+          - script: |
+              for dir in modules/azure/hub-vnet modules/azure/spoke-vnet modules/azure/nsg modules/azure/app-gateway modules/aws/vpc modules/aws/ec2 modules/aws/s3; do
+                echo "=== Validating $dir ==="
+                cd $(Build.SourcesDirectory)/$dir
+                terraform init -backend=false
+                terraform validate
+              done
+            displayName: "Validate all modules"
+
+  - stage: PlanDev
+    displayName: "Plan - Dev"
+    dependsOn: Validate
+    jobs:
+      - template: templates/terraform-plan.yml
+        parameters:
+          environment: dev
+          workingDirectory: "$(Build.SourcesDirectory)/environments/dev"
+          tfVersion: $(TF_VERSION)
+
+  - stage: PlanStaging
+    displayName: "Plan - Staging"
+    dependsOn: Validate
+    jobs:
+      - template: templates/terraform-plan.yml
+        parameters:
+          environment: staging
+          workingDirectory: "$(Build.SourcesDirectory)/environments/staging"
+          tfVersion: $(TF_VERSION)
+
+  - stage: PlanProd
+    displayName: "Plan - Production"
+    dependsOn: Validate
+    jobs:
+      - template: templates/terraform-plan.yml
+        parameters:
+          environment: prod
+          workingDirectory: "$(Build.SourcesDirectory)/environments/prod"
+          tfVersion: $(TF_VERSION)

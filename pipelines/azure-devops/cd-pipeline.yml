@@ -1,0 +1,82 @@
+###############################################################################
+# Azure DevOps - CD Pipeline (Terraform Apply)
+# Triggered on merge to main branch.
+# Applies in order: dev -> staging -> prod (with manual approval for prod).
+###############################################################################
+
+trigger:
+  branches:
+    include:
+      - main
+  paths:
+    include:
+      - environments/**
+      - modules/**
+
+pr: none
+
+pool:
+  vmImage: "ubuntu-latest"
+
+variables:
+  - group: terraform-credentials
+  - name: TF_VERSION
+    value: "1.5.7"
+
+stages:
+  # --- DEV ---
+  - stage: ApplyDev
+    displayName: "Apply - Dev"
+    jobs:
+      - template: templates/terraform-apply.yml
+        parameters:
+          environment: dev
+          workingDirectory: "$(Build.SourcesDirectory)/environments/dev"
+          tfVersion: $(TF_VERSION)
+
+  # --- STAGING ---
+  - stage: ApplyStaging
+    displayName: "Apply - Staging"
+    dependsOn: ApplyDev
+    jobs:
+      - template: templates/terraform-apply.yml
+        parameters:
+          environment: staging
+          workingDirectory: "$(Build.SourcesDirectory)/environments/staging"
+          tfVersion: $(TF_VERSION)
+
+  # --- PRODUCTION (manual approval gate) ---
+  - stage: ApplyProd
+    displayName: "Apply - Production"
+    dependsOn: ApplyStaging
+    jobs:
+      - deployment: ApplyProduction
+        displayName: "Apply Terraform - Production"
+        environment: "production"  # Azure DevOps environment with approval gate
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - checkout: self
+
+                - template: templates/install-terraform.yml
+                  parameters:
+                    version: $(TF_VERSION)
+
+                - script: |
+                    cd $(Build.SourcesDirectory)/environments/prod
+                    terraform init \
+                      -backend-config="resource_group_name=$(TF_STATE_RG)" \
+                      -backend-config="storage_account_name=$(TF_STATE_SA)" \
+                      -backend-config="container_name=tfstate" \
+                      -backend-config="key=prod/terraform.tfstate"
+                    terraform apply -auto-approve -input=false
+                  displayName: "Terraform Apply - Prod"
+                  env:
+                    ARM_CLIENT_ID: $(ARM_CLIENT_ID)
+                    ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
+                    ARM_SUBSCRIPTION_ID: $(ARM_SUBSCRIPTION_ID)
+                    ARM_TENANT_ID: $(ARM_TENANT_ID)
+                    AWS_ACCESS_KEY_ID: $(AWS_ACCESS_KEY_ID)
+                    AWS_SECRET_ACCESS_KEY: $(AWS_SECRET_ACCESS_KEY)
+                    AWS_DEFAULT_REGION: $(AWS_DEFAULT_REGION)

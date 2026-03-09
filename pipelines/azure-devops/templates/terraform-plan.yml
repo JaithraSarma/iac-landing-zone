@@ -1,0 +1,60 @@
+###############################################################################
+# Template: Terraform Plan
+# Reusable template for running terraform plan per environment.
+###############################################################################
+
+parameters:
+  - name: environment
+    type: string
+  - name: workingDirectory
+    type: string
+  - name: tfVersion
+    type: string
+
+jobs:
+  - job: Plan_${{ parameters.environment }}
+    displayName: "Terraform Plan - ${{ parameters.environment }}"
+    steps:
+      - checkout: self
+
+      - template: install-terraform.yml
+        parameters:
+          version: ${{ parameters.tfVersion }}
+
+      - script: |
+          cd ${{ parameters.workingDirectory }}
+          terraform init \
+            -backend-config="resource_group_name=$(TF_STATE_RG)" \
+            -backend-config="storage_account_name=$(TF_STATE_SA)" \
+            -backend-config="container_name=tfstate" \
+            -backend-config="key=${{ parameters.environment }}/terraform.tfstate"
+        displayName: "Terraform Init - ${{ parameters.environment }}"
+        env:
+          ARM_CLIENT_ID: $(ARM_CLIENT_ID)
+          ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
+          ARM_SUBSCRIPTION_ID: $(ARM_SUBSCRIPTION_ID)
+          ARM_TENANT_ID: $(ARM_TENANT_ID)
+
+      - script: |
+          cd ${{ parameters.workingDirectory }}
+          terraform validate
+        displayName: "Terraform Validate - ${{ parameters.environment }}"
+
+      - script: |
+          cd ${{ parameters.workingDirectory }}
+          terraform plan -out=tfplan -input=false
+        displayName: "Terraform Plan - ${{ parameters.environment }}"
+        env:
+          ARM_CLIENT_ID: $(ARM_CLIENT_ID)
+          ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
+          ARM_SUBSCRIPTION_ID: $(ARM_SUBSCRIPTION_ID)
+          ARM_TENANT_ID: $(ARM_TENANT_ID)
+          AWS_ACCESS_KEY_ID: $(AWS_ACCESS_KEY_ID)
+          AWS_SECRET_ACCESS_KEY: $(AWS_SECRET_ACCESS_KEY)
+          AWS_DEFAULT_REGION: $(AWS_DEFAULT_REGION)
+
+      - task: PublishPipelineArtifact@1
+        displayName: "Publish Plan Artifact"
+        inputs:
+          targetPath: "${{ parameters.workingDirectory }}/tfplan"
+          artifactName: "tfplan-${{ parameters.environment }}"

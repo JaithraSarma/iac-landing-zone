@@ -1,0 +1,73 @@
+###############################################################################
+# Template: Terraform Apply
+# Reusable template for running terraform apply per environment.
+###############################################################################
+
+parameters:
+  - name: environment
+    type: string
+  - name: workingDirectory
+    type: string
+  - name: tfVersion
+    type: string
+
+jobs:
+  - job: Apply_${{ parameters.environment }}
+    displayName: "Terraform Apply - ${{ parameters.environment }}"
+    steps:
+      - checkout: self
+
+      - template: install-terraform.yml
+        parameters:
+          version: ${{ parameters.tfVersion }}
+
+      - task: DownloadPipelineArtifact@2
+        displayName: "Download Plan Artifact"
+        inputs:
+          artifactName: "tfplan-${{ parameters.environment }}"
+          targetPath: "${{ parameters.workingDirectory }}"
+        continueOnError: true
+
+      - script: |
+          cd ${{ parameters.workingDirectory }}
+          terraform init \
+            -backend-config="resource_group_name=$(TF_STATE_RG)" \
+            -backend-config="storage_account_name=$(TF_STATE_SA)" \
+            -backend-config="container_name=tfstate" \
+            -backend-config="key=${{ parameters.environment }}/terraform.tfstate"
+        displayName: "Terraform Init - ${{ parameters.environment }}"
+        env:
+          ARM_CLIENT_ID: $(ARM_CLIENT_ID)
+          ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
+          ARM_SUBSCRIPTION_ID: $(ARM_SUBSCRIPTION_ID)
+          ARM_TENANT_ID: $(ARM_TENANT_ID)
+
+      - script: |
+          cd ${{ parameters.workingDirectory }}
+          if [ -f tfplan ]; then
+            echo "Applying saved plan..."
+            terraform apply -auto-approve tfplan
+          else
+            echo "No saved plan found, running fresh apply..."
+            terraform apply -auto-approve -input=false
+          fi
+        displayName: "Terraform Apply - ${{ parameters.environment }}"
+        env:
+          ARM_CLIENT_ID: $(ARM_CLIENT_ID)
+          ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
+          ARM_SUBSCRIPTION_ID: $(ARM_SUBSCRIPTION_ID)
+          ARM_TENANT_ID: $(ARM_TENANT_ID)
+          AWS_ACCESS_KEY_ID: $(AWS_ACCESS_KEY_ID)
+          AWS_SECRET_ACCESS_KEY: $(AWS_SECRET_ACCESS_KEY)
+          AWS_DEFAULT_REGION: $(AWS_DEFAULT_REGION)
+
+      - script: |
+          cd ${{ parameters.workingDirectory }}
+          terraform output -json > outputs.json
+          cat outputs.json
+        displayName: "Show Outputs - ${{ parameters.environment }}"
+        env:
+          ARM_CLIENT_ID: $(ARM_CLIENT_ID)
+          ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
+          ARM_SUBSCRIPTION_ID: $(ARM_SUBSCRIPTION_ID)
+          ARM_TENANT_ID: $(ARM_TENANT_ID)
